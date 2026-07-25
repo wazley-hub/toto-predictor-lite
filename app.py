@@ -1,4 +1,7 @@
+import base64
+import hmac
 from collections import Counter
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -10,9 +13,13 @@ import streamlit.components.v1 as components
 
 APP_DIR = Path(__file__).resolve().parent
 LOCAL_DATA = APP_DIR / "TotoHistoryAll.xlsx"
-GITHUB_RAW = (
-    "https://raw.githubusercontent.com/"
-    "wazley-hub/rumah-a-predictor-v9/main/TotoHistoryAll.xlsx"
+GITHUB_OWNER = "wazley-hub"
+GITHUB_REPO = "toto-predictor-lite"
+GITHUB_BRANCH = "main"
+GITHUB_DATA_PATH = "TotoHistoryAll.xlsx"
+GITHUB_CONTENTS_API = (
+    f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/"
+    f"{GITHUB_DATA_PATH}"
 )
 
 
@@ -64,16 +71,115 @@ def normalize_history(df):
     return out.reset_index(drop=True)
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+def get_secret(name):
+    try:
+        return str(st.secrets.get(name, "")).strip()
+    except Exception:
+        return ""
+
+
+def github_headers(token=""):
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def fetch_github_workbook(token=""):
+    response = requests.get(
+        GITHUB_CONTENTS_API,
+        params={"ref": GITHUB_BRANCH},
+        headers=github_headers(token),
+        timeout=15,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    encoded = str(payload.get("content", "")).replace("\n", "")
+    if not encoded:
+        raise RuntimeError("Kandungan fail GitHub tidak dapat dibaca.")
+    return base64.b64decode(encoded), str(payload.get("sha", ""))
+
+
+@st.cache_data(ttl=60, show_spinner=False)
 def load_history():
     try:
-        response = requests.get(GITHUB_RAW, timeout=12)
-        response.raise_for_status()
-        return normalize_history(pd.read_excel(BytesIO(response.content))), "GitHub (read-only)"
+        workbook_bytes, _ = fetch_github_workbook(get_secret("LITE_GITHUB_TOKEN"))
+        return (
+            normalize_history(pd.read_excel(BytesIO(workbook_bytes))),
+            "GitHub Toto Predictor Lite",
+        )
     except Exception:
         if not LOCAL_DATA.exists():
             raise RuntimeError("Data GitHub tidak dapat dibaca dan fail fallback tiada.")
         return normalize_history(pd.read_excel(LOCAL_DATA)), "Fail fallback (read-only)"
+
+
+def validate_update(raw_df, draw_no, draw_date, first, second, third):
+    values = (first, second, third)
+    if not draw_no.isdigit():
+        return "Draw No mesti mengandungi nombor sahaja."
+    if not draw_date.isdigit() or len(draw_date) != 8:
+        return "Tarikh mesti dalam format YYYYMMDD, contohnya 20260725."
+    try:
+        datetime.strptime(draw_date, "%Y%m%d")
+    except ValueError:
+        return "Tarikh tidak sah."
+    if not all(value.isdigit() and len(value) == 4 for value in values):
+        return "1st, 2nd dan 3rd Prize mesti tepat empat digit."
+
+    existing_draws = raw_df["DrawNo"].astype(str).str.replace(r"\.0$", "", regex=True)
+    if draw_no in set(existing_draws):
+        return f"Draw {draw_no} sudah wujud. Kemas kini dibatalkan."
+
+    dates = pd.to_numeric(raw_df["DrawDate"], errors="coerce").dropna()
+    if not dates.empty and int(draw_date) <= int(dates.max()):
+        return "Tarikh baharu mesti selepas tarikh keputusan terakhir."
+    return ""
+
+
+def update_github_history(draw_no, draw_date, first, second, third):
+    token = get_secret("LITE_GITHUB_TOKEN")
+    if not token:
+        raise RuntimeError("LITE_GITHUB_TOKEN belum ditetapkan dalam Streamlit Secrets.")
+
+    workbook_bytes, current_sha = fetch_github_workbook(token)
+    raw_df = pd.read_excel(BytesIO(workbook_bytes))
+    required = ["DrawNo", "DrawDate", "1stPrizeNo", "2ndPrizeNo", "3rdPrizeNo"]
+    if any(column not in raw_df.columns for column in required):
+        raise RuntimeError("Format TotoHistoryAll.xlsx dalam repo tidak sah.")
+
+    validation_error = validate_update(
+        raw_df, draw_no, draw_date, first, second, third
+    )
+    if validation_error:
+        raise ValueError(validation_error)
+
+    new_row = {
+        "DrawNo": int(draw_no),
+        "DrawDate": int(draw_date),
+        "1stPrizeNo": int(first),
+        "2ndPrizeNo": int(second),
+        "3rdPrizeNo": int(third),
+    }
+    updated = pd.concat([raw_df, pd.DataFrame([new_row])], ignore_index=True)
+    output = BytesIO()
+    updated.to_excel(output, index=False, engine="openpyxl")
+
+    response = requests.put(
+        GITHUB_CONTENTS_API,
+        headers=github_headers(token),
+        json={
+            "message": f"Update Toto Predictor Lite Draw {draw_no}",
+            "content": base64.b64encode(output.getvalue()).decode("ascii"),
+            "sha": current_sha,
+            "branch": GITHUB_BRANCH,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
 
 
 def copy_button(label, value, key):
@@ -244,7 +350,7 @@ except Exception as error:
     st.stop()
 
 latest = history.iloc[-1]
-st.info(f"Sumber data: {data_source} · Tiada fungsi edit atau upload")
+st.info(f"Sumber data: {data_source} · Repo Lite berasingan")
 st.subheader("📅 Keputusan Terbaru")
 result_columns = st.columns(4)
 result_columns[0].metric("Draw No", str(latest["draw_no"]))
@@ -252,6 +358,70 @@ result_columns[1].metric("1st Prize", pad4(latest["first"]))
 result_columns[2].metric("2nd Prize", pad4(latest["second"]))
 result_columns[3].metric("3rd Prize", pad4(latest["third"]))
 st.caption(f'Tarikh: {latest["draw_date"]}')
+
+with st.expander("📝 Update Keputusan", expanded=False):
+    st.caption(
+        "Kemas kini ini hanya menyimpan data ke repo Toto Predictor Lite. "
+        "Ia tidak menyentuh Rumah A Predictor."
+    )
+    update_password = st.text_input(
+        "Kata laluan kemas kini",
+        type="password",
+        key="lite_update_password_input",
+    )
+    update_columns = st.columns(2)
+    new_draw_no = update_columns[0].text_input(
+        "Draw No baharu", key="lite_new_draw_no"
+    ).strip()
+    new_draw_date = update_columns[1].text_input(
+        "Tarikh baharu (YYYYMMDD)", key="lite_new_draw_date", max_chars=8
+    ).strip()
+    prize_columns = st.columns(3)
+    new_first = prize_columns[0].text_input(
+        "1st Prize baharu", key="lite_new_first", max_chars=4
+    ).strip()
+    new_second = prize_columns[1].text_input(
+        "2nd Prize baharu", key="lite_new_second", max_chars=4
+    ).strip()
+    new_third = prize_columns[2].text_input(
+        "3rd Prize baharu", key="lite_new_third", max_chars=4
+    ).strip()
+    confirm_update = st.checkbox(
+        "Saya telah menyemak dan mengesahkan keputusan ini.",
+        key="lite_confirm_update",
+    )
+
+    if st.button("Simpan Keputusan", key="lite_save_result"):
+        configured_password = get_secret("LITE_UPDATE_PASSWORD")
+        if not configured_password:
+            st.error("LITE_UPDATE_PASSWORD belum ditetapkan dalam Streamlit Secrets.")
+        elif not hmac.compare_digest(update_password, configured_password):
+            st.error("Kata laluan kemas kini salah.")
+        elif not confirm_update:
+            st.error("Tandakan kotak pengesahan sebelum menyimpan.")
+        else:
+            try:
+                with st.spinner("Menyimpan keputusan ke repo Lite..."):
+                    update_github_history(
+                        new_draw_no,
+                        new_draw_date,
+                        new_first,
+                        new_second,
+                        new_third,
+                    )
+                load_history.clear()
+                st.success(f"Draw {new_draw_no} berjaya disimpan.")
+                st.rerun()
+            except ValueError as error:
+                st.error(str(error))
+            except requests.HTTPError as error:
+                status = getattr(error.response, "status_code", "")
+                st.error(
+                    f"GitHub menolak kemas kini ({status}). "
+                    "Semak token dan akses repo Lite."
+                )
+            except Exception as error:
+                st.error(f"Kemas kini gagal: {error}")
 
 st.divider()
 st.subheader("🎲 Generate")

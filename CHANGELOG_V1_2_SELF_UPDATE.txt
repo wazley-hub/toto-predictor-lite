@@ -1,0 +1,9 @@
+Toto Predictor Lite V1.2
+
+- Sumber data ditukar kepada wazley-hub/toto-predictor-lite.
+- Tambah Update Keputusan yang dilindungi kata laluan.
+- Keputusan disimpan hanya ke TotoHistoryAll.xlsx dalam repo Lite.
+- Tolak Draw No pendua, tarikh tidak sah/lama dan nombor hadiah bukan 4 digit.
+- Pengguna mesti menandakan kotak pengesahan sebelum simpan.
+- Token GitHub dibaca daripada Streamlit Secrets dan tidak disimpan dalam kod.
+- Bridge Pair Shortlist kekal Bridge V1 sahaja.

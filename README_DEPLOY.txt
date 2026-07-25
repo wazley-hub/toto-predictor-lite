@@ -10,10 +10,18 @@ Kandungan:
 - Bridge Pair Shortlist (Bridge V1 sahaja)
 
 Keselamatan:
-- Tiada History Manager
 - Tiada upload fail
-- Tiada GitHub token
-- Tiada fungsi save atau auto-save
-- Bacaan GitHub adalah read-only
+- History Manager hanya menulis ke wazley-hub/toto-predictor-lite
+- Kemas kini dilindungi kata laluan
+- Token GitHub disimpan dalam Streamlit Secrets, bukan dalam kod
+- Tiada akses tulis kepada repo Rumah A Predictor
+
+STREAMLIT SECRETS
+=================
+
+Di Streamlit: Manage app > Settings > Secrets
+
+LITE_GITHUB_TOKEN = "token fine-grained untuk repo toto-predictor-lite"
+LITE_UPDATE_PASSWORD = "kata laluan yang diberikan kepada pengguna"
 
 Deploy sebagai projek Streamlit yang berasingan menggunakan app.py.
