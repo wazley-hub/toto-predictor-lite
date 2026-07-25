@@ -332,7 +332,7 @@ def build_pair_numbers(pair, audit_row, first, second, third):
         f'Historical Hit: {int(audit_row["Historical Hit"])}',
     ]
     values = frame["No"].tolist()
-    lines.extend(["", f"Bridge V1 (Unique Family: {len(values)}):"])
+    lines.extend(["", f"Bridge V1 (Pilihan Unik: {len(values)}):"])
     lines.extend(
         " / ".join(values[index:index + 10])
         for index in range(0, len(values), 10)
@@ -443,13 +443,17 @@ first, second, third = st.session_state["generated_values"]
 st.divider()
 st.subheader("🧪 Bridge V1")
 pair_df, bridge_df, bridge_text = build_bridge_v1(first, second, third)
-st.caption(f"Jumlah unique family: {len(bridge_df)}")
+st.caption(f"Jumlah pilihan unik: {len(bridge_df)}")
 copy_button("📋 Copy Bridge V1", bridge_text, "bridge_v1")
 with st.expander("Lihat Detail Bridge V1", expanded=False):
     st.markdown("**Base Pair**")
     st.dataframe(pair_df, hide_index=True, use_container_width=True)
-    st.markdown("**Bridge Families**")
-    st.dataframe(bridge_df, hide_index=True, use_container_width=True)
+    st.markdown("**Senarai Bridge**")
+    st.dataframe(
+        bridge_df.drop(columns=["Family"], errors="ignore"),
+        hide_index=True,
+        use_container_width=True,
+    )
 
 st.subheader("🧭 Bridge Pair Shortlist")
 st.caption(
@@ -489,8 +493,12 @@ for _, audit_row in priority_df.iterrows():
             f'Historical Hit: {int(audit_row["Historical Hit"])}'
         )
         copy_button(f"📋 Copy Pair {pair}", copy_text, f"pair_{pair}")
-        st.markdown(f"**Bridge V1 — {len(numbers_df)} unique family**")
-        st.dataframe(numbers_df, hide_index=True, use_container_width=True)
+        st.markdown(f"**Bridge V1 — {len(numbers_df)} pilihan unik**")
+        st.dataframe(
+            numbers_df.drop(columns=["Family"], errors="ignore"),
+            hide_index=True,
+            use_container_width=True,
+        )
 
 with st.expander("Lihat audit sembilan kedudukan pair", expanded=False):
     st.dataframe(priority_df, hide_index=True, use_container_width=True)
