@@ -350,7 +350,6 @@ except Exception as error:
     st.stop()
 
 latest = history.iloc[-1]
-st.info(f"Sumber data: {data_source} · Repo Lite berasingan")
 st.subheader("📅 Keputusan Terbaru")
 result_columns = st.columns(4)
 result_columns[0].metric("Draw No", str(latest["draw_no"]))
