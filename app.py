@@ -154,7 +154,7 @@ def build_pair_priority(history, first, second, third):
         ("3rd", "Middle", 1, "third"),
         ("3rd", "Back", 2, "third"),
     ]
-    v1_hits, v2_hits = Counter(), Counter()
+    v1_hits = Counter()
     transitions = len(history) - 1
     for index in range(transitions):
         source_numbers = [
@@ -174,37 +174,25 @@ def build_pair_priority(history, first, second, third):
                 for missing_digit in missing
                 for existing_digit in existing
             }
-            v2_families = {
-                family4(f"{pair}{first_digit}{second_digit}")
-                for pool in (missing, existing)
-                for first_digit in pool
-                for second_digit in pool
-                if first_digit != second_digit
-            }
             if v1_families & targets:
                 v1_hits[(source, position)] += 1
-            if v2_families & targets:
-                v2_hits[(source, position)] += 1
 
     current = {"first": pad4(first), "second": pad4(second), "third": pad4(third)}
     rows = []
     for order, (source, position, start, column) in enumerate(slots):
         v1 = int(v1_hits[(source, position)])
-        v2 = int(v2_hits[(source, position)])
         rows.append(
             {
                 "Source": source,
                 "Pair Position": position,
                 "Current Pair": current[column][start:start + 2],
-                "V1 Hit": v1,
-                "V2 Hit": v2,
-                "Total Support": v1 + v2,
+                "Historical Hit": v1,
                 "Transitions": transitions,
                 "_Order": order,
             }
         )
     ranked = pd.DataFrame(rows).sort_values(
-        ["Total Support", "_Order"], ascending=[False, True], kind="stable"
+        ["Historical Hit", "_Order"], ascending=[False, True], kind="stable"
     ).reset_index(drop=True)
     ranked.insert(0, "Priority", range(1, len(ranked) + 1))
     return ranked.drop(columns="_Order")
@@ -227,15 +215,6 @@ def build_pair_numbers(pair, audit_row, first, second, third):
     for missing_digit in missing:
         for existing_digit in existing:
             add(f"{pair}{missing_digit}{existing_digit}", "Bridge V1")
-    for pool, route in (
-        (missing, "Bridge V2 - 2 Missing"),
-        (existing, "Bridge V2 - 2 Existing"),
-    ):
-        for first_digit in pool:
-            for second_digit in pool:
-                if first_digit != second_digit:
-                    add(f"{pair}{first_digit}{second_digit}", route)
-
     frame = pd.DataFrame(
         records.values(), columns=["Pair", "No", "Family", "Route"]
     )
@@ -244,17 +223,14 @@ def build_pair_numbers(pair, audit_row, first, second, third):
         "",
         f"Pair Pilihan: {pair}",
         f'Sumber Ranking: {audit_row["Source"]} Prize - {audit_row["Pair Position"]}',
-        f'V1 Hit: {int(audit_row["V1 Hit"])}',
-        f'V2 Hit: {int(audit_row["V2 Hit"])}',
-        f'Total Support: {int(audit_row["Total Support"])}',
+        f'Historical Hit: {int(audit_row["Historical Hit"])}',
     ]
-    for route in ("Bridge V1", "Bridge V2 - 2 Missing", "Bridge V2 - 2 Existing"):
-        values = frame[frame["Route"] == route]["No"].tolist()
-        lines.extend(["", f"{route} (Unique Family: {len(values)}):"])
-        lines.extend(
-            " / ".join(values[index:index + 10])
-            for index in range(0, len(values), 10)
-        )
+    values = frame["No"].tolist()
+    lines.extend(["", f"Bridge V1 (Unique Family: {len(values)}):"])
+    lines.extend(
+        " / ".join(values[index:index + 10])
+        for index in range(0, len(values), 10)
+    )
     return frame, "\n".join(lines)
 
 
@@ -308,8 +284,8 @@ with st.expander("Lihat Detail Bridge V1", expanded=False):
 
 st.subheader("🧭 Bridge Pair Shortlist")
 st.caption(
-    "Pair disusun mengikut sokongan sejarah. Buka mana-mana pair untuk melihat "
-    "nombor Bridge V1 dan V2 bagi pair itu sahaja."
+    "Pair disusun mengikut jumlah hit sejarah Bridge V1. Buka mana-mana pair "
+    "untuk melihat nombor Bridge V1 bagi pair itu sahaja."
 )
 priority_df = build_pair_priority(history, first, second, third)
 ranking = " / ".join(
@@ -336,21 +312,16 @@ for _, audit_row in priority_df.iterrows():
     )
     label = (
         f'#{int(audit_row["Priority"])} Pair {pair} · '
-        f'Support {int(audit_row["Total Support"])}'
+        f'Hit {int(audit_row["Historical Hit"])}'
     )
     with st.expander(label, expanded=False):
         st.caption(
-            f'Sumber: {source_text} · V1 Hit: {int(audit_row["V1 Hit"])} · '
-            f'V2 Hit: {int(audit_row["V2 Hit"])}'
+            f'Sumber: {source_text} · '
+            f'Historical Hit: {int(audit_row["Historical Hit"])}'
         )
         copy_button(f"📋 Copy Pair {pair}", copy_text, f"pair_{pair}")
-        v1_rows = numbers_df[numbers_df["Route"] == "Bridge V1"]
-        v2_rows = numbers_df[numbers_df["Route"].str.startswith("Bridge V2")]
-        st.markdown(f"**Bridge V1 — {len(v1_rows)} unique family**")
-        st.dataframe(v1_rows, hide_index=True, use_container_width=True)
-        st.markdown(f"**Bridge V2 — {len(v2_rows)} unique family**")
-        st.dataframe(v2_rows, hide_index=True, use_container_width=True)
+        st.markdown(f"**Bridge V1 — {len(numbers_df)} unique family**")
+        st.dataframe(numbers_df, hide_index=True, use_container_width=True)
 
 with st.expander("Lihat audit sembilan kedudukan pair", expanded=False):
     st.dataframe(priority_df, hide_index=True, use_container_width=True)
-

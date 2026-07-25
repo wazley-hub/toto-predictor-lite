@@ -7,7 +7,7 @@ Kandungan:
 - Keputusan terbaru (read-only)
 - Input Top 3 dan butang Generate
 - Bridge V1
-- Bridge Pair Shortlist
+- Bridge Pair Shortlist (Bridge V1 sahaja)
 
 Keselamatan:
 - Tiada History Manager
