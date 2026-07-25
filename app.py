@@ -359,10 +359,6 @@ result_columns[3].metric("3rd Prize", pad4(latest["third"]))
 st.caption(f'Tarikh: {latest["draw_date"]}')
 
 with st.expander("📝 Update Keputusan", expanded=False):
-    st.caption(
-        "Kemas kini ini hanya menyimpan data ke repo Toto Predictor Lite. "
-        "Ia tidak menyentuh Rumah A Predictor."
-    )
     update_password = st.text_input(
         "Kata laluan kemas kini",
         type="password",
