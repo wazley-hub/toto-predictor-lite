@@ -247,6 +247,70 @@ def build_bridge_v1(first, second, third):
     return pd.DataFrame(pair_rows), bridge_df, text
 
 
+def build_bridge_v2(first, second, third):
+    """Bridge V2: base pair + dua digit missing atau dua digit existing."""
+    numbers = [pad4(first), pad4(second), pad4(third)]
+    existing = sorted(set("".join(numbers)))
+    missing = sorted(set("0123456789") - set(existing))
+    pair_rows = []
+    base_pairs = []
+    for source, number in zip(("1st", "2nd", "3rd"), numbers):
+        for position, pair in zip(
+            ("Front", "Middle", "Back"),
+            (number[:2], number[1:3], number[2:4]),
+        ):
+            pair_rows.append(
+                {"Source": source, "Pair Position": position, "Pair": pair}
+            )
+            base_pairs.append(pair)
+    base_pairs = list(dict.fromkeys(base_pairs))
+
+    records = {}
+    for pair in base_pairs:
+        for pool, mode in ((missing, "2 Missing"), (existing, "2 Existing")):
+            for digit_1 in pool:
+                for digit_2 in pool:
+                    if digit_1 == digit_2:
+                        continue
+                    number = f"{pair}{digit_1}{digit_2}"
+                    record = records.setdefault(
+                        number,
+                        {"No": number, "Mode": set(), "Base Pair": set()},
+                    )
+                    record["Mode"].add(mode)
+                    record["Base Pair"].add(pair)
+
+    rows = [
+        {
+            "No": record["No"],
+            "Mode": " / ".join(sorted(record["Mode"])),
+            "Base Pair": " / ".join(sorted(record["Base Pair"])),
+        }
+        for record in records.values()
+    ]
+    bridge_df = pd.DataFrame(rows, columns=["No", "Mode", "Base Pair"])
+    text = (
+        "🧪 Toto Predictor - Bridge V2\n\n"
+        f"Base Pairs:\n{' / '.join(base_pairs)}\n\n"
+        f"Missing Digits:\n{' / '.join(missing)}\n\n"
+        f"Existing Digits:\n{' / '.join(existing)}"
+    )
+    for mode in ("2 Missing", "2 Existing"):
+        values = (
+            bridge_df.loc[
+                bridge_df["Mode"].str.contains(mode, regex=False), "No"
+            ].tolist()
+            if not bridge_df.empty
+            else []
+        )
+        text += f"\n\n{mode} Numbers (Total: {len(values)}):\n"
+        text += "\n".join(
+            " / ".join(values[index:index + 10])
+            for index in range(0, len(values), 10)
+        ) or "Tiada output."
+    return pd.DataFrame(pair_rows), bridge_df, text
+
+
 @st.cache_data(show_spinner=False)
 def build_pair_priority(history, first, second, third):
     slots = [
@@ -325,11 +389,9 @@ def build_pair_numbers(pair, audit_row, first, second, third):
         records.values(), columns=["Pair", "No", "Family", "Route"]
     )
     lines = [
-        "🧭 Toto Predictor - Bridge Pair Shortlist",
+        "🧭 Toto Predictor - Pilihan Mengikut Pair",
         "",
         f"Pair Pilihan: {pair}",
-        f'Sumber Ranking: {audit_row["Source"]} Prize - {audit_row["Pair Position"]}',
-        f'Historical Hit: {int(audit_row["Historical Hit"])}',
     ]
     values = frame["No"].tolist()
     lines.extend(["", f"Bridge V1 (Pilihan Unik: {len(values)}):"])
@@ -451,17 +513,42 @@ with st.expander("Lihat Detail Bridge V1", expanded=False):
         use_container_width=True,
     )
 
-st.subheader("🧭 Bridge Pair Shortlist")
+st.divider()
+st.subheader("🧪 Bridge V2")
+bridge_v2_pair_df, bridge_v2_df, bridge_v2_text = build_bridge_v2(
+    first, second, third
+)
+missing_count = int(
+    bridge_v2_df["Mode"].str.contains("2 Missing", regex=False).sum()
+) if not bridge_v2_df.empty else 0
+existing_count = int(
+    bridge_v2_df["Mode"].str.contains("2 Existing", regex=False).sum()
+) if not bridge_v2_df.empty else 0
 st.caption(
-    "Pair disusun mengikut jumlah hit sejarah Bridge V1. Buka mana-mana pair "
-    "untuk melihat nombor Bridge V1 bagi pair itu sahaja."
+    f"Jumlah pilihan unik: {len(bridge_v2_df)} | "
+    f"2 Missing: {missing_count} | 2 Existing: {existing_count}"
+)
+copy_button("📋 Copy Bridge V2", bridge_v2_text, "bridge_v2")
+with st.expander("Lihat Detail Bridge V2", expanded=False):
+    st.markdown("**Base Pair**")
+    st.dataframe(
+        bridge_v2_pair_df, hide_index=True, use_container_width=True
+    )
+    st.markdown("**Senarai Bridge**")
+    st.dataframe(bridge_v2_df, hide_index=True, use_container_width=True)
+
+st.divider()
+st.subheader("🧭 Pilihan Mengikut Pair")
+st.caption(
+    "Buka pair yang dikehendaki untuk melihat dan menyalin nombor "
+    "Bridge V1 bagi pair itu sahaja."
 )
 priority_df = build_pair_priority(history, first, second, third)
-ranking = " / ".join(
-    f'#{int(row["Priority"])} {row["Current Pair"]}'
+ranking = " / ".join(dict.fromkeys(
+    str(row["Current Pair"]).zfill(2)[-2:]
     for _, row in priority_df.iterrows()
-)
-st.markdown(f"**Ranking Pair:** {ranking}")
+))
+st.markdown(f"**Pair semasa:** {ranking}")
 
 shown = set()
 for _, audit_row in priority_df.iterrows():
@@ -479,15 +566,9 @@ for _, audit_row in priority_df.iterrows():
         f'{row["Source"]} {row["Pair Position"]}'
         for _, row in same_pair.iterrows()
     )
-    label = (
-        f'#{int(audit_row["Priority"])} Pair {pair} · '
-        f'Hit {int(audit_row["Historical Hit"])}'
-    )
+    label = f"Pair {pair} — {len(numbers_df)} pilihan"
     with st.expander(label, expanded=False):
-        st.caption(
-            f'Sumber: {source_text} · '
-            f'Historical Hit: {int(audit_row["Historical Hit"])}'
-        )
+        st.caption(f"Sumber: {source_text}")
         copy_button(f"📋 Copy Pair {pair}", copy_text, f"pair_{pair}")
         st.markdown(f"**Bridge V1 — {len(numbers_df)} pilihan unik**")
         st.dataframe(
@@ -495,6 +576,3 @@ for _, audit_row in priority_df.iterrows():
             hide_index=True,
             use_container_width=True,
         )
-
-with st.expander("Lihat audit sembilan kedudukan pair", expanded=False):
-    st.dataframe(priority_df, hide_index=True, use_container_width=True)
