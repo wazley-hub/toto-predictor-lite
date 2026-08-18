@@ -470,6 +470,77 @@ def build_lite_backtest_excel(quick_df, summary_df, detail_df):
     return output.getvalue()
 
 
+def bridge_state(first, second, third):
+    numbers = [pad4(first), pad4(second), pad4(third)]
+    digit_counts = Counter("".join(numbers))
+    unique_pairs = set()
+    for number in numbers:
+        unique_pairs.update((number[:2], number[1:3], number[2:4]))
+    _, bridge_v1, _ = build_bridge_v1(*numbers)
+    _, bridge_v2, _ = build_bridge_v2(*numbers)
+    return {
+        "missing": 10 - len(digit_counts),
+        "max_repeat": max(digit_counts.values()),
+        "repeat_digits": sum(value >= 2 for value in digit_counts.values()),
+        "pairs": len(unique_pairs),
+        "v1_count": len(bridge_v1),
+        "v2_count": len(bridge_v2),
+    }
+
+
+@st.cache_data(show_spinner=False)
+def choose_bridge_route(history, first, second, third, lookback=100):
+    """Pilih tahap Bridge sahaja mengikut dasar Route Signal app utama."""
+    current = bridge_state(first, second, third)
+    samples = []
+    start = max(0, len(history) - int(lookback) - 1)
+    for index in range(start, len(history) - 1):
+        source = history.iloc[index]
+        target = history.iloc[index + 1]
+        source_numbers = [pad4(source[column]) for column in ("first", "second", "third")]
+        target_numbers = [pad4(target[column]) for column in ("first", "second", "third")]
+        state = bridge_state(*source_numbers)
+        _, v1_df, _ = build_bridge_v1(*source_numbers)
+        _, v2_df, _ = build_bridge_v2(*source_numbers)
+        target_families = {family4(number) for number in target_numbers}
+        v1_hit = bool(set(v1_df["Family"].astype(str)) & target_families)
+        v2_hit = bool(set(v2_df["No"].map(family4)) & target_families)
+        distance = (
+            abs(state["missing"] - current["missing"]) * 3
+            + abs(state["max_repeat"] - current["max_repeat"]) * 2
+            + abs(state["repeat_digits"] - current["repeat_digits"])
+            + abs(state["pairs"] - current["pairs"])
+            + abs(state["v1_count"] - current["v1_count"]) / 30
+            + abs(state["v2_count"] - current["v2_count"]) / 60
+        )
+        samples.append(
+            {
+                "distance": float(distance),
+                "recency": index,
+                "v1_hit": v1_hit,
+                "v2_hit": v2_hit,
+            }
+        )
+
+    # App utama membandingkan lapan keadaan sejarah terdekat. Pada tahap Bridge,
+    # V1 hanya dipilih apabila sokongannya mengatasi V2 dengan margin yang jelas;
+    # selain itu pilihan kekal V2. Aras Match tidak dipaparkan dalam app Lite.
+    nearest = sorted(samples, key=lambda row: (row["distance"], -row["recency"]))[:8]
+    if not nearest:
+        return {"route": "Bridge V2", "support": 0, "v1_rate": 0.0, "v2_rate": 0.0}
+    weights = [1 / (1 + row["distance"]) for row in nearest]
+    total_weight = sum(weights)
+    v1_rate = sum(weight * row["v1_hit"] for weight, row in zip(weights, nearest)) / total_weight
+    v2_rate = sum(weight * row["v2_hit"] for weight, row in zip(weights, nearest)) / total_weight
+    route = "Bridge V1" if v1_rate > v2_rate + 0.25 else "Bridge V2"
+    return {
+        "route": route,
+        "support": len(nearest),
+        "v1_rate": round(v1_rate * 100, 1),
+        "v2_rate": round(v2_rate * 100, 1),
+    }
+
+
 @st.cache_data(show_spinner=False)
 def build_pair_priority(history, first, second, third):
     slots = [
@@ -935,6 +1006,29 @@ with st.expander("Lihat Detail Bridge V2", expanded=False):
     st.dataframe(bridge_v2_df, hide_index=True, use_container_width=True)
 
 render_pair_selection(priority_df, first, second, third, "Bridge V2")
+
+st.divider()
+st.subheader("🧭 Route Selection")
+route_result = choose_bridge_route(history, first, second, third, lookback=100)
+selected_route = route_result["route"]
+st.markdown(f"**Bridge Pilihan:** {selected_route}")
+if selected_route == "Bridge V1":
+    selected_numbers = bridge_df["No"].astype(str).tolist()
+    selected_text = bridge_text
+elif selected_route == "Bridge V2":
+    selected_numbers = bridge_v2_df["No"].astype(str).tolist()
+    selected_text = bridge_v2_text
+else:
+    selected_numbers = []
+    selected_text = ""
+
+if selected_numbers:
+    with st.expander(
+        f"Lihat nombor {selected_route} ({len(selected_numbers)})",
+        expanded=False,
+    ):
+        st.markdown(" / ".join(selected_numbers))
+        copy_button("📋 Copy", selected_text, "copy_lite_route")
 
 st.divider()
 st.subheader("🧩 Carta 3D")
