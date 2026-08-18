@@ -312,6 +312,165 @@ def build_bridge_v2(first, second, third):
 
 
 @st.cache_data(show_spinner=False)
+def run_lite_backtest(history, draw_count):
+    """Uji Bridge V1 dan V2 sahaja pada peralihan draw sejarah."""
+    test_history = history.tail(min(int(draw_count), len(history))).reset_index(drop=True)
+    quick_rows = []
+    detail_rows = []
+
+    for index, source in test_history.iterrows():
+        first = pad4(source["first"])
+        second = pad4(source["second"])
+        third = pad4(source["third"])
+        pair_v1, bridge_v1, _ = build_bridge_v1(first, second, third)
+        pair_v2, bridge_v2, _ = build_bridge_v2(first, second, third)
+
+        has_next = index + 1 < len(test_history)
+        next_row = test_history.iloc[index + 1] if has_next else None
+        next_numbers = (
+            [pad4(next_row[column]) for column in ("first", "second", "third")]
+            if has_next
+            else []
+        )
+        v1_families = set(bridge_v1["Family"].astype(str))
+        v2_families = set(bridge_v2["No"].map(family4))
+        v1_hits = [number for number in next_numbers if family4(number) in v1_families]
+        v2_hits = [number for number in next_numbers if family4(number) in v2_families]
+
+        source_result = " / ".join((first, second, third))
+        next_result = " / ".join(next_numbers) if has_next else "Belum ada next draw"
+        quick_rows.append(
+            {
+                "Source Draw": str(source["draw_no"]),
+                "Source Result": source_result,
+                "Next Draw": str(next_row["draw_no"]) if has_next else "Belum ada next draw",
+                "Next Result": next_result,
+                "Bridge V1 Hit No": " / ".join(v1_hits),
+                "Bridge V2 Hit No": " / ".join(v2_hits),
+            }
+        )
+
+        base_pairs = list(dict.fromkeys(pair_v1["Pair"].astype(str).tolist()))
+        existing = sorted(set(first + second + third))
+        missing = sorted(set("0123456789") - set(existing))
+        detail_rows.append(
+            {
+                "Source Draw": str(source["draw_no"]),
+                "Source Date": str(source["draw_date"]),
+                "Source 1st": first,
+                "Source 2nd": second,
+                "Source 3rd": third,
+                "Base Pairs": " / ".join(base_pairs),
+                "Missing Digits": " / ".join(missing),
+                "Existing Digits": " / ".join(existing),
+                "Bridge V1 Count": len(bridge_v1),
+                "Bridge V1 Numbers": " / ".join(bridge_v1["No"].astype(str)),
+                "Bridge V2 Count": len(bridge_v2),
+                "Bridge V2 Numbers": " / ".join(bridge_v2["No"].astype(str)),
+                "Next Draw": str(next_row["draw_no"]) if has_next else "",
+                "Next Result": " / ".join(next_numbers),
+                "Bridge V1 Hit": "YES" if v1_hits else "NO",
+                "Bridge V1 Hit No": " / ".join(v1_hits),
+                "Bridge V2 Hit": "YES" if v2_hits else "NO",
+                "Bridge V2 Hit No": " / ".join(v2_hits),
+            }
+        )
+
+    quick_df = pd.DataFrame(quick_rows)
+    detail_df = pd.DataFrame(detail_rows)
+    completed = max(len(quick_df) - 1, 0)
+    v1_hit_count = int(quick_df.iloc[:completed]["Bridge V1 Hit No"].ne("").sum())
+    v2_hit_count = int(quick_df.iloc[:completed]["Bridge V2 Hit No"].ne("").sum())
+    unique_hit_count = int(
+        (
+            quick_df.iloc[:completed]["Bridge V1 Hit No"].ne("")
+            | quick_df.iloc[:completed]["Bridge V2 Hit No"].ne("")
+        ).sum()
+    )
+    rate = lambda value: round((value / completed * 100), 1) if completed else 0.0
+    summary_df = pd.DataFrame(
+        {
+            "Metric": [
+                "Jumlah Draw", "Draw Selesai", "Draw Pending",
+                "Bridge V1 Hit", "Bridge V1 Hit Rate %",
+                "Bridge V2 Hit", "Bridge V2 Hit Rate %",
+                "Bridge V1 atau V2 Hit", "Total Unique Hit Rate %",
+            ],
+            "Value": [
+                len(quick_df), completed, len(quick_df) - completed,
+                v1_hit_count, rate(v1_hit_count), v2_hit_count,
+                rate(v2_hit_count), unique_hit_count, rate(unique_hit_count),
+            ],
+        }
+    )
+    return quick_df, summary_df, detail_df
+
+
+@st.cache_data(show_spinner=False)
+def build_lite_backtest_excel(quick_df, summary_df, detail_df):
+    """Bina fail Excel Lite dengan tiga tab sahaja."""
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        quick_df.to_excel(writer, sheet_name="Quick Review", index=False)
+        summary_df.to_excel(writer, sheet_name="Summary", index=False)
+        detail_df.to_excel(writer, sheet_name="Detail", index=False)
+        workbook = writer.book
+        header_fill = PatternFill("solid", fgColor="17365D")
+        header_font = Font(color="FFFFFF", bold=True)
+        fills = {
+            "v1": PatternFill("solid", fgColor="E2F0D9"),
+            "v2": PatternFill("solid", fgColor="DDEBF7"),
+        }
+
+        for sheet in workbook.worksheets:
+            sheet.freeze_panes = "A2"
+            sheet.auto_filter.ref = sheet.dimensions
+            sheet.sheet_view.showGridLines = False
+            for cell in sheet[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            sheet.row_dimensions[1].height = 32
+
+        quick = workbook["Quick Review"]
+        quick.sheet_properties.pageSetUpPr.fitToPage = True
+        quick.page_setup.orientation = "landscape"
+        quick.page_setup.fitToWidth = 1
+        quick.column_dimensions["A"].width = 14
+        quick.column_dimensions["B"].width = 24
+        quick.column_dimensions["C"].width = 18
+        quick.column_dimensions["D"].width = 24
+        quick.column_dimensions["E"].width = 20
+        quick.column_dimensions["F"].width = 20
+        for row in range(2, quick.max_row + 1):
+            quick.cell(row, 5).fill = fills["v1"]
+            quick.cell(row, 6).fill = fills["v2"]
+            for column in range(1, 7):
+                quick.cell(row, column).alignment = Alignment(vertical="center", wrap_text=True)
+
+        summary = workbook["Summary"]
+        summary.column_dimensions["A"].width = 30
+        summary.column_dimensions["B"].width = 18
+        for row in range(2, summary.max_row + 1):
+            summary.cell(row, 2).font = Font(bold=True)
+
+        detail = workbook["Detail"]
+        for column in detail.columns:
+            letter = column[0].column_letter
+            header = str(column[0].value)
+            detail.column_dimensions[letter].width = 55 if "Numbers" in header else min(max(len(header) + 3, 13), 24)
+        for row in range(2, detail.max_row + 1):
+            for column in range(1, detail.max_column + 1):
+                detail.cell(row, column).alignment = Alignment(vertical="top", wrap_text=True)
+            detail.row_dimensions[row].height = 45
+
+    output.seek(0)
+    return output.getvalue()
+
+
+@st.cache_data(show_spinner=False)
 def build_pair_priority(history, first, second, third):
     slots = [
         ("1st", "Front", 0, "first"),
@@ -647,6 +806,73 @@ with st.expander("📝 Update Keputusan", expanded=False):
                 )
             except Exception as error:
                 st.error(f"Kemas kini gagal: {error}")
+
+st.divider()
+with st.expander("🧪 Backtest Bridge V1 + V2", expanded=False):
+    draw_options = [value for value in (30, 50, 100, 200, 500) if value <= len(history)]
+    if len(history) not in draw_options and len(history) < 30:
+        draw_options.append(len(history))
+    default_index = draw_options.index(100) if 100 in draw_options else len(draw_options) - 1
+    backtest_draws = st.selectbox(
+        "Jumlah source draw untuk test",
+        draw_options,
+        index=default_index,
+        key="lite_backtest_draws",
+    )
+    if st.button("Run Backtest", key="run_lite_backtest"):
+        with st.spinner("Backtest sedang berjalan..."):
+            quick_review, summary, detail = run_lite_backtest(
+                history, backtest_draws
+            )
+            workbook_bytes = build_lite_backtest_excel(
+                quick_review, summary, detail
+            )
+            st.session_state["lite_backtest_result"] = {
+                "draws": backtest_draws,
+                "quick": quick_review,
+                "summary": summary,
+                "detail": detail,
+                "excel": workbook_bytes,
+            }
+
+    backtest_result = st.session_state.get("lite_backtest_result")
+    if backtest_result:
+        completed = int(
+            backtest_result["summary"].loc[
+                backtest_result["summary"]["Metric"] == "Draw Selesai", "Value"
+            ].iloc[0]
+        )
+        st.success(f"Backtest selesai: {completed} draw lengkap diuji.")
+        with st.expander("Lihat Summary", expanded=False):
+            st.dataframe(
+                backtest_result["summary"],
+                hide_index=True,
+                use_container_width=True,
+            )
+        with st.expander("Lihat Quick Review", expanded=False):
+            st.dataframe(
+                backtest_result["quick"],
+                hide_index=True,
+                use_container_width=True,
+                height=360,
+            )
+        with st.expander("Lihat Detail", expanded=False):
+            st.dataframe(
+                backtest_result["detail"],
+                hide_index=True,
+                use_container_width=True,
+                height=360,
+            )
+        st.download_button(
+            "📥 Download Backtest Excel",
+            data=backtest_result["excel"],
+            file_name=(
+                f"Toto_Predictor_Lite_Backtest_"
+                f"{backtest_result['draws']}_Draw.xlsx"
+            ),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_lite_backtest",
+        )
 
 st.divider()
 st.subheader("🎲 Generate")
