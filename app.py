@@ -963,49 +963,10 @@ if "generated_values" not in st.session_state:
 
 first, second, third = st.session_state["generated_values"]
 priority_df = build_pair_priority(history, first, second, third)
-
-st.divider()
-st.subheader("🧪 Bridge V1")
 pair_df, bridge_df, bridge_text = build_bridge_v1(first, second, third)
-st.caption(f"Jumlah pilihan unik: {len(bridge_df)}")
-copy_button("📋 Copy Bridge V1", bridge_text, "bridge_v1")
-with st.expander("Lihat Detail Bridge V1", expanded=False):
-    st.markdown("**Base Pair**")
-    st.dataframe(pair_df, hide_index=True, use_container_width=True)
-    st.markdown("**Senarai Bridge**")
-    st.dataframe(
-        bridge_df.drop(columns=["Family"], errors="ignore"),
-        hide_index=True,
-        use_container_width=True,
-    )
-
-render_pair_selection(priority_df, first, second, third, "Bridge V1")
-
-st.divider()
-st.subheader("🧪 Bridge V2")
 bridge_v2_pair_df, bridge_v2_df, bridge_v2_text = build_bridge_v2(
     first, second, third
 )
-missing_count = int(
-    bridge_v2_df["Mode"].str.contains("2 Missing", regex=False).sum()
-) if not bridge_v2_df.empty else 0
-existing_count = int(
-    bridge_v2_df["Mode"].str.contains("2 Existing", regex=False).sum()
-) if not bridge_v2_df.empty else 0
-st.caption(
-    f"Jumlah pilihan unik: {len(bridge_v2_df)} | "
-    f"2 Missing: {missing_count} | 2 Existing: {existing_count}"
-)
-copy_button("📋 Copy Bridge V2", bridge_v2_text, "bridge_v2")
-with st.expander("Lihat Detail Bridge V2", expanded=False):
-    st.markdown("**Base Pair**")
-    st.dataframe(
-        bridge_v2_pair_df, hide_index=True, use_container_width=True
-    )
-    st.markdown("**Senarai Bridge**")
-    st.dataframe(bridge_v2_df, hide_index=True, use_container_width=True)
-
-render_pair_selection(priority_df, first, second, third, "Bridge V2")
 
 st.divider()
 st.subheader("🧭 Route Selection")
@@ -1029,6 +990,45 @@ if selected_numbers:
     ):
         st.markdown(" / ".join(selected_numbers))
         copy_button("📋 Copy", selected_text, "copy_lite_route")
+
+st.divider()
+st.subheader("🧪 Bridge V1")
+st.caption(f"Jumlah pilihan unik: {len(bridge_df)}")
+copy_button("📋 Copy Bridge V1", bridge_text, "bridge_v1")
+with st.expander("Lihat Detail Bridge V1", expanded=False):
+    st.markdown("**Base Pair**")
+    st.dataframe(pair_df, hide_index=True, use_container_width=True)
+    st.markdown("**Senarai Bridge**")
+    st.dataframe(
+        bridge_df.drop(columns=["Family"], errors="ignore"),
+        hide_index=True,
+        use_container_width=True,
+    )
+
+render_pair_selection(priority_df, first, second, third, "Bridge V1")
+
+st.divider()
+st.subheader("🧪 Bridge V2")
+missing_count = int(
+    bridge_v2_df["Mode"].str.contains("2 Missing", regex=False).sum()
+) if not bridge_v2_df.empty else 0
+existing_count = int(
+    bridge_v2_df["Mode"].str.contains("2 Existing", regex=False).sum()
+) if not bridge_v2_df.empty else 0
+st.caption(
+    f"Jumlah pilihan unik: {len(bridge_v2_df)} | "
+    f"2 Missing: {missing_count} | 2 Existing: {existing_count}"
+)
+copy_button("📋 Copy Bridge V2", bridge_v2_text, "bridge_v2")
+with st.expander("Lihat Detail Bridge V2", expanded=False):
+    st.markdown("**Base Pair**")
+    st.dataframe(
+        bridge_v2_pair_df, hide_index=True, use_container_width=True
+    )
+    st.markdown("**Senarai Bridge**")
+    st.dataframe(bridge_v2_df, hide_index=True, use_container_width=True)
+
+render_pair_selection(priority_df, first, second, third, "Bridge V2")
 
 st.divider()
 st.subheader("🧩 Carta 3D")
