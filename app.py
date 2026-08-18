@@ -490,6 +490,86 @@ def render_pair_selection(priority_df, first, second, third, version):
             )
 
 
+def build_chart_3d(first, second, third, bridge_v1_df, bridge_v2_df):
+    numbers = [pad4(first), pad4(second), pad4(third)]
+    digit_sums = [sum(int(digit) for digit in number) for number in numbers]
+    digit_roots = [0 if value == 0 else 1 + (value - 1) % 9 for value in digit_sums]
+    total_sum = str(sum(digit_sums))
+    root_sum = str(sum(digit_roots))
+    cross_rows = [
+        "".join(str(int(top) + int(bottom)) for bottom in root_sum)
+        for top in total_sum
+    ]
+    final_row = str(sum(int(digit) for digit in total_sum)) + str(
+        sum(int(digit) for digit in root_sum)
+    )
+    derived_rows = cross_rows + [final_row]
+    chart_rows = [total_sum, root_sum] + derived_rows
+
+    choices = []
+    seen = set()
+    max_width = max(len(row) for row in derived_rows)
+    for column in range(max_width):
+        if all(column < len(row) for row in derived_rows):
+            value = "".join(row[column] for row in derived_rows)
+            if len(value) == 3 and ("Menegak", value) not in seen:
+                seen.add(("Menegak", value))
+                choices.append({"Pilihan": "Menegak", "3D": value})
+    for row_index in range(len(derived_rows) - 1):
+        top_row = derived_rows[row_index]
+        bottom_row = derived_rows[row_index + 1]
+        for column in range(min(len(top_row), len(bottom_row)) - 1):
+            variants = [
+                ("L Kiri", top_row[column] + bottom_row[column] + bottom_row[column + 1]),
+                ("L Kanan", top_row[column + 1] + bottom_row[column + 1] + bottom_row[column]),
+            ]
+            if row_index < len(cross_rows) - 1:
+                variants.append(
+                    ("L Atas", top_row[column] + bottom_row[column] + top_row[column + 1])
+                )
+            for label, value in variants:
+                if label != "Menegak" and any(
+                    old_label != "Menegak" and old_value == value
+                    for old_label, old_value in seen
+                ):
+                    continue
+                if (label, value) not in seen:
+                    seen.add((label, value))
+                    choices.append({"Pilihan": label, "3D": value})
+    choices_df = pd.DataFrame(choices, columns=["Pilihan", "3D"])
+
+    confirmed = []
+    for _, choice in choices_df.iterrows():
+        anchor = str(choice["3D"])
+        for bridge, frame in (("V1", bridge_v1_df), ("V2", bridge_v2_df)):
+            for number in frame.get("No", pd.Series(dtype=str)).astype(str):
+                if not (Counter(anchor) - Counter(pad4(number))):
+                    confirmed.append(
+                        {
+                            "Pilihan": choice["Pilihan"],
+                            "3D": anchor,
+                            "No": pad4(number),
+                            "Bridge": bridge,
+                        }
+                    )
+    confirmed_df = pd.DataFrame(
+        confirmed, columns=["Pilihan", "3D", "No", "Bridge"]
+    ).drop_duplicates()
+    vertical = choices_df.loc[choices_df["Pilihan"] == "Menegak", "3D"].tolist()
+    l_choices = choices_df.loc[choices_df["Pilihan"] != "Menegak", "3D"].tolist()
+    text = (
+        "🧩 Toto Predictor - Carta 3D\n\n"
+        f"Top 3: {' / '.join(numbers)}\n"
+        f"Jumlah Digit: {' / '.join(str(value) for value in digit_sums)}\n"
+        f"Digital Root: {' / '.join(str(value) for value in digit_roots)}\n"
+        f"Asas: {total_sum} / {root_sum}\n\n"
+        + "\n".join(chart_rows)
+        + f"\n\nPilihan Menegak: {' / '.join(vertical) or 'Tiada'}"
+        + f"\nPilihan L: {' / '.join(l_choices) or 'Tiada'}"
+    )
+    return text, chart_rows, vertical, l_choices, confirmed_df
+
+
 st.title("🎯 Toto Predictor")
 st.caption("Bridge Analysis Lite")
 
@@ -629,3 +709,16 @@ with st.expander("Lihat Detail Bridge V2", expanded=False):
     st.dataframe(bridge_v2_df, hide_index=True, use_container_width=True)
 
 render_pair_selection(priority_df, first, second, third, "Bridge V2")
+
+st.divider()
+st.subheader("🧩 Carta 3D")
+chart_text, chart_rows, vertical, l_choices, confirmed_df = build_chart_3d(
+    first, second, third, bridge_df, bridge_v2_df
+)
+st.code("\n".join(chart_rows), language=None)
+st.markdown(
+    f"**Pilihan Menegak:** {' / '.join(vertical) or 'Tiada'}  \n"
+    f"**Pilihan L:** {' / '.join(l_choices) or 'Tiada'}  \n"
+    f"**Carta 3D + Bridge:** {len(confirmed_df)}"
+)
+copy_button("📋 Copy Carta 3D", chart_text, "chart_3d")
