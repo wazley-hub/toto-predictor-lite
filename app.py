@@ -402,6 +402,94 @@ def build_pair_numbers(pair, audit_row, first, second, third):
     return frame, "\n".join(lines)
 
 
+def build_pair_numbers_v2(pair, first, second, third):
+    current = [pad4(first), pad4(second), pad4(third)]
+    existing = sorted(set("".join(current)))
+    missing = sorted(set("0123456789") - set(existing))
+    pair = str(pair).zfill(2)[-2:]
+    records = {}
+    for pool, mode in ((missing, "2 Missing"), (existing, "2 Existing")):
+        for digit_1 in pool:
+            for digit_2 in pool:
+                if digit_1 == digit_2:
+                    continue
+                number = f"{pair}{digit_1}{digit_2}"
+                record = records.setdefault(
+                    number, {"Pair": pair, "No": number, "Mode": set()}
+                )
+                record["Mode"].add(mode)
+    rows = [
+        {
+            "Pair": record["Pair"],
+            "No": record["No"],
+            "Mode": " / ".join(sorted(record["Mode"])),
+        }
+        for record in records.values()
+    ]
+    frame = pd.DataFrame(rows, columns=["Pair", "No", "Mode"])
+    values = frame["No"].tolist()
+    lines = [
+        "🧭 Toto Predictor - Pilihan Pair Bridge V2",
+        "",
+        f"Pair Pilihan: {pair}",
+        "",
+        f"Bridge V2 (Pilihan Unik: {len(values)}):",
+    ]
+    lines.extend(
+        " / ".join(values[index:index + 10])
+        for index in range(0, len(values), 10)
+    )
+    return frame, "\n".join(lines)
+
+
+def render_pair_selection(priority_df, first, second, third, version):
+    st.subheader(f"🧭 Pilihan Pair {version}")
+    st.caption(
+        f"Buka pair yang dikehendaki untuk melihat dan menyalin nombor "
+        f"{version} bagi pair itu sahaja."
+    )
+    ranking = " / ".join(dict.fromkeys(
+        str(row["Current Pair"]).zfill(2)[-2:]
+        for _, row in priority_df.iterrows()
+    ))
+    st.markdown(f"**Pair semasa:** {ranking}")
+
+    shown = set()
+    for _, audit_row in priority_df.iterrows():
+        pair = str(audit_row["Current Pair"]).zfill(2)[-2:]
+        if pair in shown:
+            continue
+        shown.add(pair)
+        same_pair = priority_df[
+            priority_df["Current Pair"].astype(str).str.zfill(2) == pair
+        ]
+        source_text = " / ".join(
+            f'{row["Source"]} {row["Pair Position"]}'
+            for _, row in same_pair.iterrows()
+        )
+        if version == "Bridge V1":
+            numbers_df, copy_text = build_pair_numbers(
+                pair, audit_row, first, second, third
+            )
+            copy_key = f"pair_v1_{pair}"
+        else:
+            numbers_df, copy_text = build_pair_numbers_v2(
+                pair, first, second, third
+            )
+            copy_key = f"pair_v2_{pair}"
+        with st.expander(
+            f"Pair {pair} — {len(numbers_df)} pilihan", expanded=False
+        ):
+            st.caption(f"Sumber: {source_text}")
+            copy_button(f"📋 Copy Pair {pair}", copy_text, copy_key)
+            st.markdown(f"**{version} — {len(numbers_df)} pilihan unik**")
+            st.dataframe(
+                numbers_df.drop(columns=["Family", "Route"], errors="ignore"),
+                hide_index=True,
+                use_container_width=True,
+            )
+
+
 st.title("🎯 Toto Predictor")
 st.caption("Bridge Analysis Lite")
 
@@ -497,6 +585,7 @@ if "generated_values" not in st.session_state:
     st.stop()
 
 first, second, third = st.session_state["generated_values"]
+priority_df = build_pair_priority(history, first, second, third)
 
 st.divider()
 st.subheader("🧪 Bridge V1")
@@ -512,6 +601,8 @@ with st.expander("Lihat Detail Bridge V1", expanded=False):
         hide_index=True,
         use_container_width=True,
     )
+
+render_pair_selection(priority_df, first, second, third, "Bridge V1")
 
 st.divider()
 st.subheader("🧪 Bridge V2")
@@ -537,42 +628,4 @@ with st.expander("Lihat Detail Bridge V2", expanded=False):
     st.markdown("**Senarai Bridge**")
     st.dataframe(bridge_v2_df, hide_index=True, use_container_width=True)
 
-st.divider()
-st.subheader("🧭 Pilihan Mengikut Pair")
-st.caption(
-    "Buka pair yang dikehendaki untuk melihat dan menyalin nombor "
-    "Bridge V1 bagi pair itu sahaja."
-)
-priority_df = build_pair_priority(history, first, second, third)
-ranking = " / ".join(dict.fromkeys(
-    str(row["Current Pair"]).zfill(2)[-2:]
-    for _, row in priority_df.iterrows()
-))
-st.markdown(f"**Pair semasa:** {ranking}")
-
-shown = set()
-for _, audit_row in priority_df.iterrows():
-    pair = str(audit_row["Current Pair"]).zfill(2)[-2:]
-    if pair in shown:
-        continue
-    shown.add(pair)
-    numbers_df, copy_text = build_pair_numbers(
-        pair, audit_row, first, second, third
-    )
-    same_pair = priority_df[
-        priority_df["Current Pair"].astype(str).str.zfill(2) == pair
-    ]
-    source_text = " / ".join(
-        f'{row["Source"]} {row["Pair Position"]}'
-        for _, row in same_pair.iterrows()
-    )
-    label = f"Pair {pair} — {len(numbers_df)} pilihan"
-    with st.expander(label, expanded=False):
-        st.caption(f"Sumber: {source_text}")
-        copy_button(f"📋 Copy Pair {pair}", copy_text, f"pair_{pair}")
-        st.markdown(f"**Bridge V1 — {len(numbers_df)} pilihan unik**")
-        st.dataframe(
-            numbers_df.drop(columns=["Family"], errors="ignore"),
-            hide_index=True,
-            use_container_width=True,
-        )
+render_pair_selection(priority_df, first, second, third, "Bridge V2")
